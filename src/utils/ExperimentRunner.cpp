@@ -1,99 +1,111 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include "filter/BambooFilter.hpp"
-#include "bio/DNAGenerator.hpp"
-#include "bio/KMerGenerator.hpp"
-#include "utils/Benchmark.hpp"
-#include "utils/FASTAParser.hpp"
+#include <string>
 
-// runs a single experiment configuration
-void runExperiment(const std::string &dna,
-                   int k,
-                   size_t size,
-                   int hashes,
-                   const std::string &outputName)
-{
-    BambooFilter bf(size, hashes);
+#include "../filter/BambooFilter.hpp"
+#include "../bio/DNAGenerator.hpp"
+#include "../bio/KMerGenerator.hpp"
+#include "Benchmark.hpp"
+#include "FASTAParser.hpp"
 
-    auto kmers = generateKmers(dna, k);
+void runExperiments(
+    const std::string& outputFile,
+    const std::string& fastaFile) {
 
-    Benchmark b1;
-    b1.start();
-
-    for (const auto &kmer : kmers)
-        bf.insert(kmer);
-
-    long long insertTime = b1.stop();
-
-    Benchmark b2;
-    b2.start();
-
-    int tp = 0;
-    for (const auto &kmer : kmers)
-        if (bf.contains(kmer))
-            tp++;
-
-    long long lookupTime = b2.stop();
-
-    int fp = 0;
-    int tests = 50000;
-
-    for (int i = 0; i < tests; i++)
-    {
-        std::string fake = generateDNA(k);
-        if (bf.contains(fake))
-            fp++;
-    }
-
-    double fpr = (double)fp / tests * 100.0;
-    double load = (double)kmers.size() / size;
-
-    std::ofstream out(outputName, std::ios::app);
-
-    out << k << ","
-        << size << ","
-        << hashes << ","
-        << insertTime << ","
-        << lookupTime << ","
-        << fpr << ","
-        << load << "\n";
-
-    out.close();
-
-    std::cout << "done k=" << k
-              << " size=" << size
-              << " hashes=" << hashes << "\n";
-}
-
-// main experiment driver
-int main()
-{
-    std::string dna = generateDNA(200000);
+    std::ofstream out(outputFile);
 
     std::vector<int> kValues = {10, 20, 50, 100, 200};
-    std::vector<size_t> sizes = {100000, 500000, 1000000};
-    std::vector<int> hashes = {3, 5, 7, 10};
+    std::vector<size_t> dnaSizes = {100000, 500000, 1000000};
 
-    std::string output = "results.csv";
+    for (size_t dnaSize : dnaSizes) {
 
-    // csv header
-    std::ofstream out(output);
-    out << "k,size,hashes,insert_time,lookup_time,fpr,load_factor\n";
-    out.close();
+        std::string dna;
 
-    for (int k : kValues)
-    {
-        for (size_t s : sizes)
-        {
-            for (int h : hashes)
-            {
-                runExperiment(dna, k, s, h, output);
+        if (fastaFile.empty()) {
+            dna = generateRandomDNA(dnaSize);
+            std::cout << "using synthetic dna\n";
+        } else {
+            dna = readFasta(fastaFile);
+            std::cout << "using fasta file\n";
+        }
+
+        if (dna.empty()) continue;
+
+        std::cout << "dna size: " << dna.size() << "\n";
+
+        for (int k : kValues) {
+
+            if (k >= (int)dna.size()) continue;
+
+            auto kmers = generateKmers(dna, k);
+
+            BambooFilter filter(20000);
+
+            /* ---------------- INSERT ---------------- */
+            Benchmark t1;
+            t1.start();
+
+            for (const auto& kmer : kmers) {
+                filter.insert(kmer);
             }
+
+            long long insertTime = t1.stop();
+
+            /* ---------------- LOOKUP (true positives) ---------------- */
+            Benchmark t2;
+            t2.start();
+
+            int truePositives = 0;
+
+            for (const auto& kmer : kmers) {
+                if (filter.contains(kmer)) {
+                    truePositives++;
+                }
+            }
+
+            long long lookupTime = t2.stop();
+
+            /* ---------------- FALSE POSITIVES ---------------- */
+            int falsePositives = 0;
+            int testSamples = 100000;
+
+            for (int i = 0; i < testSamples; i++) {
+
+                std::string fake = generateRandomDNA(k);
+
+                if (filter.contains(fake)) {
+                    falsePositives++;
+                }
+            }
+
+            double fpRate =
+                (double)falsePositives / testSamples * 100.0;
+
+            double loadFactor =
+                filter.loadFactor();
+
+
+
+
+            
+
+            /* ---------------- OUTPUT ---------------- */
+            out << "DNA size: " << dna.size() << "\n";
+            out << "k: " << k << "\n";
+            out << "kmers: " << kmers.size() << "\n";
+            out << "insert time: " << insertTime << " ms\n";
+            out << "lookup time: " << lookupTime << " ms\n";
+            out << "load factor: " << loadFactor << "\n";
+            out << "true positives: " << truePositives << "\n";
+            out << "false positives: " << falsePositives << "\n";
+            out << "false positive rate: " << fpRate << "%\n\n";
+
+            std::cout << "done k=" << k
+                      << " dna=" << dna.size()
+                      << "\n";
         }
     }
 
-    std::cout << "all experiments finished\n";
-
-    return 0;
+    out.close();
 }
