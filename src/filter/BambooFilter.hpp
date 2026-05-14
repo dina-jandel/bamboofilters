@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <random>
 
 /*
  * Bamboo Filter (Cuckoo-style probabilistic filter)
@@ -12,22 +13,23 @@
  * - incremental resizing (lazy migration)
  */
 
-class BambooFilter {
- public:
+class BambooFilter
+{
+public:
     BambooFilter(
         size_t initialBuckets = 100000,
         size_t bucketSize = 4,
-        size_t maxKicks = 500
-    );
+        size_t maxKicks = 500);
 
-    bool insert(const std::string& item);
-    bool contains(const std::string& item) const;
+    bool insert(const std::string &item);
+    bool contains(const std::string &item) const;
 
     size_t size() const;
     double loadFactor() const;
 
- private:
-    struct Bucket {
+private:
+    struct Bucket
+    {
         std::vector<uint16_t> fingerprints;
 
         explicit Bucket(size_t bucketSize)
@@ -44,14 +46,16 @@ class BambooFilter {
     size_t bucketSize_;
     size_t maxKicks_;
     size_t itemCount_;
+    std::mt19937 gen_;
 
     /* ---------------- RESIZE STATE ---------------- */
     bool resizing_;
     size_t migrationIndex_;
+    size_t resizeCooldown_;
 
     /* ---------------- HASHING ---------------- */
-    uint64_t hash(const std::string& item) const;
-    uint16_t fingerprint(const std::string& item) const;
+    uint64_t hash(const std::string &item) const;
+    uint16_t fingerprint(const std::string &item) const;
 
     size_t indexHash(
         uint64_t hashValue,
@@ -64,15 +68,15 @@ class BambooFilter {
 
     /* ---------------- CORE OPS ---------------- */
     bool insertIntoBucket(
-        std::vector<Bucket>& table,
+        std::vector<Bucket> &table,
         size_t index,
         uint16_t fp);
 
     bool insertIntoTable(
-        std::vector<Bucket>& table,
+        std::vector<Bucket> &table,
         size_t tableSize,
         uint16_t fp,
-        const std::string& item);
+        const std::string &item);
 
     /* ---------------- RESIZE ---------------- */
     void startResize();
