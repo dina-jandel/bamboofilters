@@ -13,4 +13,5 @@ add_executable(
     src/utils/Benchmark.cpp
     src/utils/FASTAParser.cpp
     src/utils/ExperimentRunner.cpp
+    src/filter/BloomFilter.cpp
 )
