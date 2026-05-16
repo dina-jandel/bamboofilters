@@ -1,3 +1,4 @@
+// ovaj kod napisala je clanica tima: Marija Špoljarić
 #ifndef DNA_GENERATOR_HPP
 #define DNA_GENERATOR_HPP
 
