@@ -1,12 +1,13 @@
-// ovaj kod napisala je clanica tima: Marija Špoljarić
+// this code was written by team member: Marija Špoljarić
 #ifndef DNA_GENERATOR_HPP
 #define DNA_GENERATOR_HPP
 
 #include <string>
 
-//deklaracija funkcije koja generira DNA sekvencu zadane duljine koristeci moderni random generator
+// declaration of a function that generates a DNA sequence of a given length using a modern random generator
 std::string generateDNA(size_t length);
-//deklaracije funkcije koja generira DNA sekvencu koristeci klasicni rand()
+
+// declaration of a function that generates a DNA sequence using the classic rand()
 std::string generateRandomDNA(int k);
 
 #endif
