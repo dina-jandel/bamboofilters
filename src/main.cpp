@@ -1,17 +1,17 @@
-// ovaj kod napisala je clanica tima: Dina Janđel
-#include <iostream>   
-#include <string>     
+// this code was written by team member: Dina Janđel
+#include <iostream>
+#include <string>
 
 /*
-    deklaracija funkcije runExperiments()
-    funkcija pokrece testiranje implementiranog Bamboo filtera i sprema rezultate u datoteku
+    declaration of function runExperiments()
+    this function runs tests of the implemented Bamboo filter and saves results to a file
 
-    parametri:
-    outputFile -> ime izlazne datoteke u koju se spremaju rezultati
-    fastaFile  -> opcionalna FASTA datoteka s DNA sekvencama 
+    parameters:
+    outputFile -> name of the output file where results are saved
+    fastaFile  -> optional FASTA file with DNA sequences
 
-    ako fastaFile nije proslijeden:
-    koristi se generirana random DNA sekvenca
+    if fastaFile is not provided:
+    a randomly generated DNA sequence is used
 */
 void runExperiments(
     const std::string &outputFile,
@@ -22,42 +22,37 @@ int main(
     char *argv[])
 {
     /*
-        primjer poziva: 
-        ./bamboo_project --file test.fasta --out rez.txt
+        example call:
+        ./bamboo_project --file test.fasta --out results.txt
         argc: 5
         argv:
-        argv[0] -> ime programa
+        argv[0] -> program name
         argv[1] -> "--file"
         argv[2] -> "test.fasta"
         argv[3] -> "--out"
-        argv[4] -> "rez.txt"
+        argv[4] -> "results.txt"
     */
 
-    // po defaultu nema FASTA datoteke
+    // by default there is no FASTA file
     std::string fastaFile = "";
 
-    // default ime izlazne datoteke (ako se ne navede kao argument kom. linije)
+    // default output file name (if not provided via command line arguments)
     std::string outputFile = "results.txt";
 
-    
-    //prolazi kroz sve argumente komandne linije
-       
-    
+    // iterate through all command line arguments
     for (int i = 1; i < argc; i++)
     {
-        // trenutni argument pretvara u string
+        // convert current argument to string
         std::string arg = argv[i];
 
-        
-        // ako korisnik napise --file imeDatoteke sprema ime FASTA datoteke
+        // if user writes --file, store FASTA filename
         if (arg == "--file")
         {
-            // argv[++i] uzima sljedeci argument
+            // argv[++i] takes the next argument
             fastaFile = argv[++i];
         }
 
-        
-        //ako korisnik napise --out imeRezultata sprema ime izlazne datoteke
+        // if user writes --out, store output file name
         else if (arg == "--out")
         {
             outputFile = argv[++i];
@@ -65,21 +60,21 @@ int main(
     }
 
     /*
-        pokrece eksperimente nad Bamboo filterom
+        run experiments on the Bamboo filter
 
-        ako postoji FASTA file:
-        -> koristi stvarne DNA podatke
+        if FASTA file exists:
+        -> use real DNA data
 
-        ako ne postoji:
-        -> koristi random generirane DNA sekvence
+        if not:
+        -> use randomly generated DNA sequences
     */
     runExperiments(
         outputFile,
         fastaFile);
 
-    // poruka nakon zavrsetka programa da su eksperimenti dovrseni, rezultati spremljeni u izlaznoj datoteci
+    // message after program finishes that experiments are completed and results are saved
     std::cout
-        << "Experiments completed.\n";
-    
+        << "experiments completed.\n";
+
     return 0;
 }
