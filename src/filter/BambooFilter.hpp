@@ -1,27 +1,24 @@
-// ovaj kod napisala je clanica tima: Dina Janđel
+// this code was written by team member: Dina Janđel
 
 #ifndef BAMBOO_FILTER_HPP
 #define BAMBOO_FILTER_HPP
 
-#include <cstdint>   
-#include <string>    
-#include <vector>    
-#include <random>    
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <random>
 
-
-//datoteka s deklaracijama za BambooFilter klasu
-
+// file with declarations for the BambooFilter class
 
 class BambooFilter
 {
 public:
-
     /*
-        konstruktor klase
+        class constructor
 
-        initialBuckets -> pocetni broj bucketa
-        bucketSize     -> broj slotova po bucketu
-        maxKicks       -> maksimalan broj cuckoo relokacija
+        initialBuckets -> initial number of buckets
+        bucketSize     -> number of slots per bucket
+        maxKicks       -> maximum number of cuckoo relocations
     */
     BambooFilter(
         size_t initialBuckets = 100000,
@@ -29,125 +26,121 @@ public:
         size_t maxKicks = 500);
 
     /*
-        umece novi element u filter
+        inserts a new element into the filter
 
-        vraca:
-        true  (uspjesno umetanje)
-        false (umetanje nije uspjelo)
+        returns:
+        true  (successful insertion)
+        false (insertion failed)
     */
     bool insert(const std::string &item);
 
     /*
-        provjerava postoji li element u filteru
+        checks whether an element exists in the filter
 
-        vraca:
-        true  (element mozda postoji)
-        false (element sigurno ne postoji)
+        returns:
+        true  (element may exist)
+        false (element definitely does not exist)
     */
     bool contains(const std::string &item) const;
 
-    
-    //vraca ukupan broj spremljenih elemenata
-    
+    // returns total number of stored elements
+
     size_t size() const;
 
-    
-    //racuna popunjenost filtera
+    // calculates filter load factor
 
     double loadFactor() const;
 
 private:
-
     /*
-        bucket -> jedan blok u tablici
-        svaki bucket sadrzi vise fingerprintova
-        fingerprint -> skracena verzija hash vrijednosti
+        bucket -> one block in the table
+        each bucket contains multiple fingerprints
+        fingerprint -> shortened version of a hash value
     */
     struct Bucket
     {
         std::vector<uint16_t> fingerprints;
+        std::vector<uint64_t> originalHashes; // Dodano polje za pohranu originalnog hasha radi ispravne migracije bez false negatives
 
         /*
-            konstruktor bucketa
+            bucket constructor
 
-            kreira bucket odredene velicine i sva mjesta inicijalizira na 0 (0 oznacava prazan slot)
+            creates a bucket of a given size and initializes all slots to 0 (0 indicates an empty slot)
         */
         explicit Bucket(size_t bucketSize)
-            : fingerprints(bucketSize, 0) {}
+            : fingerprints(bucketSize, 0),
+              originalHashes(bucketSize, 0) {} // Inicijalizacija vektora hasheva na 0
     };
 
+    // TABLES
 
-    // TABLICE
-
-    // trenutna aktivna tablica
+    // current active table
     std::vector<Bucket> currentTable_;
 
-    // stara tablica tijekom resize procesa
+    // old table during resize process
     std::vector<Bucket> oldTable_;
 
+    // FILTER PARAMETERS
 
-    // PARAMETRI FILTERA
+    size_t bucketCount_;    // number of buckets in current table
+    size_t oldBucketCount_; // number of buckets in old table
+    size_t bucketSize_;     // number of slots per bucket
+    size_t maxKicks_;       // maximum number of relocations
+    size_t itemCount_;      // number of inserted elements
 
-    size_t bucketCount_;      // broj bucketa trenutne tablice
-    size_t oldBucketCount_;   // broj bucketa stare tablice
-    size_t bucketSize_;       // broj slotova po bucketu
-    size_t maxKicks_;         // maksimalan broj relokacija
-    size_t itemCount_;        // broj umetnutih elemenata
-
-    // generator slucajnih brojeva za cuckoo relocation
+    // random number generator for cuckoo relocation
     std::mt19937 gen_;
 
-    // BAMBOO RESIZE VARIJABLE
+    // BAMBOO RESIZE VARIABLES
 
-    bool resizing_;           // oznacava traje li resize
-    size_t migrationIndex_;   // trenutna pozicija migracije
-    size_t resizeCooldown_;   // sprjecava precesto resizeanje
+    bool resizing_;         // indicates whether resizing is in progress
+    size_t migrationIndex_; // current migration position
+    size_t resizeCooldown_; // prevents too frequent resizing
 
-    // HASH FUNKCIJE
+    // HASH FUNCTIONS
 
-    // generira hash vrijednost za zadani string
+    // generates a hash value for a given string
     uint64_t hash(const std::string &item) const;
 
-    // gnerira kraci fingerprint iz hash vrijednosti
+    // generates a shorter fingerprint from a hash value
     uint16_t fingerprint(const std::string &item) const;
 
-    // IZRACUN INDEKSA
+    // INDEX CALCULATION
 
-    // racuna prvi bucket indeks
+    // computes the first bucket index
     size_t indexHash(
         uint64_t hashValue,
         size_t tableSize) const;
 
-    // racuna alternativni bucket indeks
+    // computes the alternative bucket index
     size_t altIndex(
         size_t index,
         uint16_t fp,
         size_t tableSize) const;
 
+    // INSERTION OPERATIONS
 
-    // OPERACIJE UMETANJA
-
-    // pokusava umetnuti fingerprint u određeni bucket
+    // tries to insert a fingerprint into a specific bucket
 
     bool insertIntoBucket(
         std::vector<Bucket> &table,
         size_t index,
-        uint16_t fp);
+        uint16_t fp,
+        uint64_t hashValue); // Ažurirano da prima hashValue umjesto stringa
 
-    // pokusava umetnuti fingerprint u cijelu tablicu
+    // tries to insert a fingerprint into the whole table
     bool insertIntoTable(
         std::vector<Bucket> &table,
         size_t tableSize,
         uint16_t fp,
-        const std::string &item);
+        uint64_t hashValue); // Promijenjeno iz const std::string &item u uint64_t hashValue
 
+    // RESIZE OPERATIONS
 
-    // RESIZE OPERACIJE
-
-    // pokrece Bamboo resize - stvara novu vecu tablicu
+    // starts Bamboo resize - creates a new larger table
     void startResize();
 
-    // postepeno migrira podatke iz stare tablice u novu
+    // gradually migrates data from the old table to the new one
     void migrateStep();
 };
 

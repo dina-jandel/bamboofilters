@@ -1,29 +1,29 @@
-//ovaj kod napisala je clanica tima: Dina Janđel, a kolegica Marija Špoljarić je radila na poboljsanju i ispravljanju
+// this code was written by team member: Dina Janđel, and colleague Marija Špoljarić worked on improvements and corrections
 #include "BambooFilter.hpp"
 
-#include <functional>   // std::hash
-#include <iostream>     // ispis poruka tijekom resize-a
-#include <random>       // random odabir bucketa kod cuckoo relokacije
+#include <functional> // std::hash
+#include <iostream>   // printing messages during resize
+#include <random>     // random selection of buckets during cuckoo relocation
 
 /*
-ukratko sto kod radi:
-    Bamboo filter: probabilistička struktura podataka slična Bloom filteru i Cuckoo filteru
-    koristi se za:
-    - provjeru postoji li element u skupu
-    - vrlo brzo pretraživanje
-    - manju potrošnju memorije
-    - rad s velikim datasetovima (DNA k-meri)
+briefly what the code does:
+    bamboo filter: a probabilistic data structure similar to bloom filter and cuckoo filter
+    used for:
+    - checking whether an element exists in a set
+    - very fast searching
+    - low memory consumption
+    - working with large datasets (dna k-mers)
 
-    ukratko logika:
-    - hashira DNA k-mer
-    - generira fingerprint
-    - sprema ga u jedan od dva bucketa
-    - ako su bucketi puni → cuckoo relocation
-    - ako ni to ne uspije → Bamboo resize
-    - contains() provjerava postoji li fingerprint u filteru
+    in short logic:
+    - hashes dna k-mer
+    - generates fingerprint
+    - stores it in one of two buckets
+    - if buckets are full → cuckoo relocation
+    - if that also fails → bamboo resize
+    - contains() checks whether the fingerprint exists in the filter
 */
 
-// KONSTRUKTOR
+// constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 BambooFilter::BambooFilter(
@@ -31,61 +31,59 @@ BambooFilter::BambooFilter(
     size_t bucketSize,
     size_t maxKicks)
 
-    // inicijalizacija atributa klase
-    : bucketCount_(initialBuckets),   // broj bucketa u trenutnoj tablici
-      oldBucketCount_(0),             // broj bucketa stare tablice
-      bucketSize_(bucketSize),        // broj fingerprint slotova po bucketu
-      maxKicks_(maxKicks),            // maksimalan broj relokacija
-      itemCount_(0),                  // broj umetnutih elemenata
-      resizing_(false),               // oznacava traje li resize
-      migrationIndex_(0),             // trenutna pozicija migracije
-      resizeCooldown_(0),             // sprjecava precesto resizeanje
-      gen_(std::random_device{}())    // generator slucajnih brojeva
+    // initialization of class attributes
+    : bucketCount_(initialBuckets), // number of buckets in the current table
+      oldBucketCount_(0),           // number of buckets in the old table
+      bucketSize_(bucketSize),      // number of fingerprint slots per bucket
+      maxKicks_(maxKicks),          // maximum number of relocations
+      itemCount_(0),                // number of inserted elements
+      resizing_(false),             // indicates whether resizing is in progress
+      migrationIndex_(0),           // current migration position
+      resizeCooldown_(0),           // prevents too frequent resizing
+      gen_(std::random_device{}())  // random number generator
 {
-    // rezervacija memorije za buckete
+    // reserve memory for buckets
     currentTable_.reserve(bucketCount_);
 
-    // kreiranje svih bucketa
+    // create all buckets
     for (size_t i = 0; i < bucketCount_; i++)
     {
         currentTable_.emplace_back(bucketSize_);
     }
 }
 
-
-// HASHIRANJE
+// hashing
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 uint64_t BambooFilter::hash(
     const std::string &item) const
 {
-    // hashira string pomoću std::hash
+    // hashes a string using std::hash
     return std::hash<std::string>{}(item);
 }
 
 uint16_t BambooFilter::fingerprint(
     const std::string &item) const
 {
-    // generira kraci fingerprint iz punog hash-a
+    // generates a shorter fingerprint from the full hash
     uint64_t h = hash(item);
 
-    // mijesanje bitova radi bolje distribucije
+    // bit mixing for better distribution
     uint16_t fp = static_cast<uint16_t>(
         (h ^ (h >> 16)) & 0xFFFF);
 
-    // fingerprint ne smije biti 0 jer se 0 koristi za oznacavanje praznog mjesta
+    // fingerprint must not be 0 because 0 is used to mark empty slots
     return (fp == 0) ? 1 : fp;
 }
 
-
-// IZRACUN INDEKSA
+// index calculation
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t BambooFilter::indexHash(
     uint64_t hashValue,
     size_t tableSize) const
 {
-    // određuje primarni bucket
+    // determines primary bucket
     return hashValue % tableSize;
 }
 
@@ -94,34 +92,36 @@ size_t BambooFilter::altIndex(
     uint16_t fp,
     size_t tableSize) const
 {
-    // racuna alternativni bucket
-    // koristi fingerprint i XOR 
+    // calculates alternative bucket
+    // uses fingerprint and xor
     uint64_t mix = std::hash<uint32_t>{}(fp * 2654435761u);
 
     return (index ^ mix) % tableSize;
 }
 
-// OPERACIJE NAD BUCKETIMA
+// bucket operations
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BambooFilter::insertIntoBucket(
     std::vector<Bucket> &table,
     size_t index,
-    uint16_t fp)
+    uint16_t fp,
+    uint64_t hashValue)
 {
-    // prolaz kroz sve slotove bucketa
+    // iterate through all bucket slots
     for (size_t i = 0; i < bucketSize_; i++)
     {
-        // ako je slot prazan
+        // if slot is empty
         if (table[index].fingerprints[i] == 0)
         {
-            // spremi fingerprint
+            // store fingerprint
             table[index].fingerprints[i] = fp;
+            table[index].originalHashes[i] = hashValue;
             return true;
         }
     }
 
-    // ako je bucket pun:
+    // if bucket is full:
     return false;
 }
 
@@ -129,26 +129,24 @@ bool BambooFilter::insertIntoTable(
     std::vector<Bucket> &table,
     size_t tableSize,
     uint16_t fp,
-    const std::string &item)
+    uint64_t hashValue)
 {
-    uint64_t h = hash(item);
-
-    // izracun dva moguca bucketa
-    size_t i1 = indexHash(h, tableSize);
+    // compute two possible buckets
+    size_t i1 = indexHash(hashValue, tableSize);
     size_t i2 = altIndex(i1, fp, tableSize);
 
-    // pokusaj umetanja u prvi bucket 
-    if (insertIntoBucket(table, i1, fp))
+    // try inserting into first bucket
+    if (insertIntoBucket(table, i1, fp, hashValue))
         return true;
 
-    // pokusaj umetanja u drugi bucket
-    if (insertIntoBucket(table, i2, fp))
+    // try inserting into second bucket
+    if (insertIntoBucket(table, i2, fp, hashValue))
         return true;
 
     return false;
 }
 
-// BAMBOO RESIZE
+// bamboo resize
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void BambooFilter::startResize()
@@ -162,17 +160,17 @@ void BambooFilter::startResize()
     if (currentTable_.empty())
         return;
 
-    // trenutna tablica postaje stara tablica
+    // current table becomes old table
     oldTable_ = currentTable_;
     oldBucketCount_ = bucketCount_;
 
-    // udvostrucuje broj bucketa
+    // double number of buckets
     bucketCount_ *= 2;
 
     currentTable_.clear();
     currentTable_.reserve(bucketCount_);
 
-    // kreira novu vecu tablicu
+    // create new larger table
     for (size_t i = 0; i < bucketCount_; i++)
     {
         currentTable_.emplace_back(bucketSize_);
@@ -181,7 +179,7 @@ void BambooFilter::startResize()
     resizing_ = true;
     migrationIndex_ = 0;
 
-    std::cout << "[BambooFilter] Resize started\n";
+    std::cout << "[BambooFilter] resize started\n";
 }
 
 void BambooFilter::migrateStep()
@@ -189,49 +187,53 @@ void BambooFilter::migrateStep()
     if (!resizing_)
         return;
 
-    // migracija zavrsena
+    // resize finished
     if (migrationIndex_ >= oldTable_.size())
     {
         resizing_ = false;
         oldTable_.clear();
         migrationIndex_ = 0;
 
-        std::cout << "[BambooFilter] Resize finished\n";
+        std::cout << "[BambooFilter] resize finished\n";
         return;
     }
 
-    // uzima jedan bucket iz stare tablice
+    // take one bucket from old table
     Bucket &bucket = oldTable_[migrationIndex_];
 
-    for (uint16_t fp : bucket.fingerprints)
+    for (size_t i = 0; i < bucketSize_; i++)
     {
+        uint16_t fp = bucket.fingerprints[i];
+        uint64_t h = bucket.originalHashes[i];
+
         if (fp != 0)
         {
-            // premjesta fingerprint u novu tablicu
-            insertIntoTable(
-                currentTable_,
-                bucketCount_,
-                fp,
-                "");
+            // move fingerprint to new table
+            bool ok = insertIntoTable(currentTable_, bucketCount_, fp, h);
+            if (!ok)
+            {
+                // fallback: try cuckoo insert (minimal)
+                insertIntoBucket(currentTable_, indexHash(h, bucketCount_), fp, h);
+            }
         }
     }
 
     migrationIndex_++;
 }
 
-// JAVNE FUNKCIJE 
+// public functions
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BambooFilter::insert(const std::string &item)
 {
-    // ako je tablica skoro puna -> resize
+    // if table is almost full -> resize
     if (loadFactor() > 0.85 && !resizing_ && resizeCooldown_ == 0)
     {
         startResize();
         resizeCooldown_ = 10 * bucketSize_;
     }
 
-    // tijekom resize-a migriramo dio podataka
+    // during resize we migrate part of the data
     if (resizing_)
     {
         migrateStep();
@@ -243,24 +245,24 @@ bool BambooFilter::insert(const std::string &item)
     size_t i1 = indexHash(h, bucketCount_);
     size_t i2 = altIndex(i1, fp, bucketCount_);
 
-    // pokusaj normalnog umetanja
-    if (insertIntoBucket(currentTable_, i1, fp))
+    // try normal insertion
+    if (insertIntoBucket(currentTable_, i1, fp, h))
     {
         itemCount_++;
         return true;
     }
 
-    if (insertIntoBucket(currentTable_, i2, fp))
+    if (insertIntoBucket(currentTable_, i2, fp, h))
     {
         itemCount_++;
         return true;
     }
 
     /*
-        CUCKOO RELOCATION
-        ako su oba bucketa puna:
-        - izbacujemo postojeci fingerprint
-        - premjestamo ga na alternativnu lokaciju
+        cuckoo relocation:
+        if both buckets are full:
+        - evict existing fingerprint
+        - move it to alternative location
     */
 
     std::uniform_int_distribution<int> coin(0, 1);
@@ -269,6 +271,7 @@ bool BambooFilter::insert(const std::string &item)
         coin(gen_) == 0 ? i1 : i2;
 
     uint16_t currentFp = fp;
+    uint64_t currentHash = h; // tracking hash of the element currently in hand
 
     for (size_t kick = 0; kick < maxKicks_; kick++)
     {
@@ -278,33 +281,31 @@ bool BambooFilter::insert(const std::string &item)
 
         size_t slot = slotDist(gen_);
 
-        // zamjena fingerprinta
-        std::swap(
-            currentFp,
-            currentTable_[currentIndex].fingerprints[slot]);
+        uint16_t evictedFp = currentTable_[currentIndex].fingerprints[slot];
+        uint64_t evictedHash = currentTable_[currentIndex].originalHashes[slot];
 
-        // novi alternativni bucket
-        currentIndex =
-            altIndex(
-                currentIndex,
-                currentFp,
-                bucketCount_);
+        currentTable_[currentIndex].fingerprints[slot] = currentFp;
+        currentTable_[currentIndex].originalHashes[slot] = currentHash;
 
-        // pokusaj umetanja
-        if (insertIntoBucket(
-                currentTable_,
-                currentIndex,
-                currentFp))
+        currentFp = evictedFp;
+        currentHash = evictedHash;
+
+        currentIndex = altIndex(indexHash(currentHash, bucketCount_), currentFp, bucketCount_);
+
+        if (insertIntoBucket(currentTable_, currentIndex, currentFp, currentHash))
         {
             itemCount_++;
             return true;
         }
     }
 
-    /*
-        ako relokacija ne uspije:
-        pokrece se Bamboo resize
-    */
+    // if cuckoo fails
+    if (insertIntoBucket(currentTable_, indexHash(currentHash, bucketCount_), currentFp, currentHash))
+    {
+        itemCount_++;
+        return true;
+    }
+
     if (!resizing_)
         startResize();
 
@@ -316,61 +317,58 @@ bool BambooFilter::insert(const std::string &item)
     return false;
 }
 
-//fja za provjeru postoji li k-mer u genomu
+// function for checking whether a k-mer exists in the genome
 bool BambooFilter::contains(
     const std::string &item) const
 {
+    uint64_t h = hash(item);
     uint16_t fp = fingerprint(item);
 
     auto searchTable =
         [&](const std::vector<Bucket> &table,
             size_t tableSize)
     {
-        uint64_t h = hash(item);
+        uint64_t hashValue = h;
 
-        size_t i1 = indexHash(h, tableSize);
+        size_t i1 = indexHash(hashValue, tableSize);
         size_t i2 = altIndex(i1, fp, tableSize);
 
-        // pretraga prvog bucketa
-        for (auto v : table[i1].fingerprints)
-            if (v == fp)
+        // search first bucket
+        for (size_t i = 0; i < bucketSize_; i++)
+        {
+            if (table[i1].fingerprints[i] == fp)
                 return true;
+        }
 
-        // pretraga drugog bucketa
-        for (auto v : table[i2].fingerprints)
-            if (v == fp)
+        // search second bucket
+        for (size_t i = 0; i < bucketSize_; i++)
+        {
+            if (table[i2].fingerprints[i] == fp)
                 return true;
+        }
 
         return false;
     };
 
-    // provjera u trenutnoj tablici
     if (searchTable(currentTable_, bucketCount_))
         return true;
 
-    // tijekom resize-a provjeri i staru tablicu
-    // (ako je resize u tijeku, dio podataka je možda još u staroj tablici, zato mora provjeriti i novu i staru) 
     if (resizing_)
-    {
         return searchTable(oldTable_, oldBucketCount_);
-    }
 
     return false;
 }
 
-
-// STATISTIKE
+// statistics
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t BambooFilter::size() const
 {
-    // vraca broj spremljenih elemenata
     return itemCount_;
 }
 
 double BambooFilter::loadFactor() const
 {
-    // racuna popunjenost filtera
     return static_cast<double>(itemCount_) /
            (bucketCount_ * bucketSize_);
 }
